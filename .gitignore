@@ -1,3 +1,6 @@
 .env
 __pycache__/
-*.pyc
+*.pyc.idea/ 
+chroma_db/ 
+finance_chroma_db/ 
+conversations.db 
