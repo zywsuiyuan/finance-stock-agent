@@ -65,7 +65,17 @@ def _resolve_stock_code(stock_code: str) -> tuple[str, str]:
         examples = "、".join(f"{name}({code})" for name, code in matches[:5])
         raise ValueError(f"公司简称不唯一，请使用股票代码。匹配结果：{examples}")
 
+    suggest = _suggest_stocks(text)
+    if suggest:
+        raise ValueError(f"没有找到股票：{stock_code}，你是不是想查：{'、'.join(suggest)}")
     raise ValueError(f"没有找到股票：{stock_code}")
+
+def _suggest_stocks(text: str, n: int = 3) -> list[str]:
+    """用户打错了也尽量推荐：返回最像的 n 个公司简称。"""
+    import difflib
+    name_map = _get_name_code_map()
+    close = difflib.get_close_matches(text, name_map.keys(), n=n, cutoff=0.5)
+    return [f"{name}({name_map[name]})" for name in close]
 
 
 def _to_float(value: Any) -> float | None:

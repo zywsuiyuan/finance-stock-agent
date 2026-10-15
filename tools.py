@@ -4,7 +4,7 @@ import re
 import time
 from datetime import datetime, timedelta
 from functools import lru_cache
-
+from finance_tools import _resolve_stock_code
 from langchain.tools import tool
 import akshare as ak
 
@@ -52,78 +52,78 @@ def get_stock_realtime(stock_code: str) -> str:
         stock_code: 6位数字股票代码，例如 600519，也支持 sh600519、600519.SH
     """
     try:
-        match = re.search(r"(\d{6})", stock_code.strip())
-        if not match:
-            return f"无法识别股票代码：{stock_code}，请输入6位数字代码。"
-        code = match.group(1)
+        code, symbol = _resolve_stock_code(stock_code)
+    except ValueError as e:
+        return f"{str(e)}"
 
-        # ===== 主源：东财实时报价，失败自动重试2次 =====
-        quote = None
+    # ===== 主源：东财实时报价，失败自动重试2次 =====
+    quote = None
+    for attempt in range(3):
+        try:
+            quote = ak.stock_bid_ask_em(symbol=code)
+            break
+        except Exception:
+            if attempt < 2:
+                time.sleep(1)
+            quote = None
+
+    # ===== 公司信息（尽力而为：失败不致命，用兜底值）=====
+    try:
+        info = ak.stock_individual_info_em(symbol=code)
+        i = dict(zip(info["item"], info["value"]))
+        name = i.get("股票简称", code)
+        market_cap = float(i.get("总市值", 0)) / 100_000_000
+        industry = i.get("行业", "暂无")
+    except Exception:
+        name = code
+        market_cap = 0.0
+        industry = "暂无"
+
+    if quote is not None:
+        # ===== 主源成功：用实时五档报价 =====
+        q = dict(zip(quote["item"], quote["value"]))
+        price = float(q.get("最新"))
+        pct = float(q.get("涨幅"))
+        high = float(q.get("最高"))
+        low = float(q.get("最低"))
+        open_p = float(q.get("今开"))
+        prev_close = float(q.get("昨收"))
+        volume = float(q.get("总手"))
+        amount = float(q.get("金额"))
+        turnover = float(q.get("换手"))
+        source = "东方财富（实时）"
+    else:
+        # ===== 主源失败：切换腾讯日线备用源 =====
+        today = datetime.now().strftime("%Y%m%d")
+        start = (datetime.now() - timedelta(days=15)).strftime("%Y%m%d")
+        hist = None
         for attempt in range(3):
             try:
-                quote = ak.stock_bid_ask_em(symbol=code)
+                prefix = symbol.split(".")[1].lower()  # "SH" → "sh"，深市 → "sz"
+                hist = ak.stock_zh_a_hist_tx(
+                    symbol=f"{prefix}{code}", start_date=start, end_date=today, adjust=""
+                )
                 break
             except Exception:
                 if attempt < 2:
                     time.sleep(1)
-                quote = None
+        if hist is None or len(hist) == 0:
+            return "查询行情失败：主源与备用源均暂时不可用，请稍后重试。"
+        last = hist.iloc[-1]
+        prev = hist.iloc[-2] if len(hist) >= 2 else last
+        price = float(last["close"])
+        prev_close = float(prev["close"])
+        pct = (price - prev_close) / prev_close * 100
+        high = float(last["high"])
+        low = float(last["low"])
+        open_p = float(last["open"])
+        volume = float(last["volume"])
+        amount = float(last["amount"])
+        turnover = 0.0
+        source = "腾讯日线（备用源，最近交易日收盘数据）"
 
-        # ===== 公司信息（尽力而为：失败不致命，用兜底值）=====
-        try:
-            info = ak.stock_individual_info_em(symbol=code)
-            i = dict(zip(info["item"], info["value"]))
-            name = i.get("股票简称", code)
-            market_cap = float(i.get("总市值", 0)) / 100_000_000
-            industry = i.get("行业", "暂无")
-        except Exception:
-            name = code
-            market_cap = 0.0
-            industry = "暂无"
-
-        if quote is not None:
-            # ===== 主源成功：用实时五档报价 =====
-            q = dict(zip(quote["item"], quote["value"]))
-            price = float(q.get("最新"))
-            pct = float(q.get("涨幅"))
-            high = float(q.get("最高"))
-            low = float(q.get("最低"))
-            open_p = float(q.get("今开"))
-            prev_close = float(q.get("昨收"))
-            volume = float(q.get("总手"))
-            amount = float(q.get("金额"))
-            turnover = float(q.get("换手"))
-            source = "东方财富（实时）"
-        else:
-            # ===== 主源失败：切换腾讯日线备用源 =====
-            today = datetime.now().strftime("%Y%m%d")
-            start = (datetime.now() - timedelta(days=15)).strftime("%Y%m%d")
-            hist = None
-            for attempt in range(3):
-                try:
-                    hist = ak.stock_zh_a_hist_tx(
-                        symbol=f"sh{code}", start_date=start, end_date=today, adjust=""
-                    )
-                    break
-                except Exception:
-                    if attempt < 2:
-                        time.sleep(1)
-            if hist is None or len(hist) == 0:
-                return "查询行情失败：主源与备用源均暂时不可用，请稍后重试。"
-            last = hist.iloc[-1]
-            prev = hist.iloc[-2] if len(hist) >= 2 else last
-            price = float(last["close"])
-            prev_close = float(prev["close"])
-            pct = (price - prev_close) / prev_close * 100
-            high = float(last["high"])
-            low = float(last["low"])
-            open_p = float(last["open"])
-            volume = float(last["volume"])
-            amount = float(last["amount"])
-            turnover = 0.0
-            source = "腾讯日线（备用源，最近交易日收盘数据）"
-
-        trade_date = _last_trade_date()
-        return f"""股票：{name}（{code}）
+    trade_date = _last_trade_date()
+    return f"""股票：{name}（{code}）
 最新价：{price:.2f} 元
 涨跌幅：{pct:.2f}%
 今开：{open_p:.2f} 元 / 昨收：{prev_close:.2f} 元
@@ -135,5 +135,3 @@ def get_stock_realtime(stock_code: str) -> str:
 数据源：{source}
 更新时间：{trade_date}"""
 
-    except Exception as e:
-        return f"查询行情失败：{str(e)}，请稍后重试。"

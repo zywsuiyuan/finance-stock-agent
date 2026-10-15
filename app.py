@@ -7,6 +7,12 @@ from agent import chat
 st.set_page_config(page_title="A股财务分析助手", page_icon="📈")
 st.title("📈 A股财务分析助手")
 st.caption("基于 LangChain + akshare 的 A 股财务分析智能体")
+with st.sidebar:
+    st.header("💡 使用说明")
+    st.write("输入股票名称或代码，例如：贵州茅台 / 600519 / 长江电力")
+    if st.button("🗑️ 清空对话"):
+        st.session_state.messages = []
+        st.rerun()
 
 # ===== 会话历史（存网页内存，刷新不丢）=====
 if "messages" not in st.session_state:

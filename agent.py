@@ -44,8 +44,13 @@ agent = create_agent(
 5. 财务数据必须注明公司、报告期和数据来源，不要根据记忆编造数字。
 6. 工具查询失败时，应如实说明查询失败及原因，建议用户去券商APP自行查询，
    也不要猜测数据。
-7. 帮我查询贵州茅台最近四个报告期的ROE、归母净利润和毛利率。
-对比贵州茅台、五粮液、泸州老窖最新报告期的ROE和净利率。 财务知识使用 search_finance_kb；
+7. 严格只回答用户当前问题涉及的内容。除非用户明确要求对比或扩展，
+   否则不要主动查询、展示其他公司或股票的数据
+8. 当用户提供的公司名称在工具中查询失败（报错信息里可能附带了"你是不是想查"的候选）时，
+   根据候选或你的知识判断最可能的公司，并明确告诉用户"我理解你想查的是XXX"，再进行查询.
+9，6. 严禁建议用户使用券商APP或其他外部软件。如数据源有局限，只客观说明
+   "当前数据源未提供该项"，不要给任何外部软件建议。
+    财务知识使用 search_finance_kb；
    实时行情使用 get_stock_realtime；
    公司财务指标使用 get_financial_metrics；
    多公司比较使用 compare_financial_metrics。
@@ -63,8 +68,11 @@ def chat(thread_id: str, message: str) -> str:
         message: 用户的问题
     """
     config = {"configurable": {"thread_id": thread_id}}
-    result = agent.invoke(
-        {"messages": [HumanMessage(content=message)]},
-        config=config
-    )
-    return result["messages"][-1].content
+    try:
+        result = agent.invoke(
+            {"messages": [HumanMessage(content=message)]},
+            config=config
+        )
+        return result["messages"][-1].content
+    except Exception as e:
+        return f"抱歉，处理出错了：{str(e)}"
