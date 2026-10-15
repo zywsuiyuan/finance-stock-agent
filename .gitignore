@@ -7,3 +7,5 @@ chroma_db/
 finance_chroma_db/
 conversations.db
 finance_chat.db
+finance_chat.db-shm
+finance_chat.db-wal
